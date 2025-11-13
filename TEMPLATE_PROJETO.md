@@ -3,33 +3,25 @@
 ## 1. INFORMAÇÕES DO PROJETO
 
 ### 1.1 Identificação
-- **Nome do Projeto:** [Preencher com o nome completo do projeto]
-- **Equipe:** [Listar membros da equipe]
-- **Data de Início:** [DD/MM/AAAA]
-- **Última Atualização:** [DD/MM/AAAA]
-- **Versão:** [X.X.X]
-
+- **Nome do Projeto:** Semáforo Inteligente
+- **Equipe:** Eduardo Jesus, Guilherme Schmidt, João Agmont, Leonardo Corbi, Lucas Lopez, Lucas Pomin.
+  
 ### 1.2 Objetivo Geral
-[Descrever o objetivo principal do projeto de forma clara e objetiva]
-
-### 1.3 Objetivos Específicos
-- [Objetivo específico 1]
-- [Objetivo específico 2]
-- [Objetivo específico 3]
+Aqui temos a documentação a respeito do semáforo feito pelo nosso grupo, para exercitar conhecimento em programção de Iot, utilizando um esp e alguns sensores junto do ubidots para fazer um semáforo inteligente, que tenha funcionamento comum do dia a dia, e para algumas situações, como durante a noite e caso tenha uma pessoa por perto querendo atravessar.
 
 ---
 
 ## 2. DESCRIÇÃO DO SISTEMA
 
 ### 2.1 Visão Geral
-[Descrever resumidamente como o sistema de semáforo inteligente funciona]
+Aqui contamos com um esp32, que faz seu papel de microcontrolador, onde após programar, utiliza dos led em uma situação qualquer para liga-los como um semáforo comum, além disso, ao ter algo próximo do sensor ultrasônico ele altera para que os dois farois fiquem com o led vermelho, como se um pedestre estivesse querendo passar, já com o sensor ldr (ou photoresistor), quando paira algo sobre ele gerando uma sombra, simulando o cenário no horário da noite, ele mantém os dois faróis ligados no amarelo.
 
 ### 2.2 Componentes do Sistema
-- **Semáforo 1:** [Descrever função e localização]
-- **Semáforo 2:** [Descrever função e localização]
-- **Controlador:** [Especificar hardware utilizado - ex: ESP32]
-- **Plataforma de Monitoramento:** [Especificar - ex: Ubidots]
-- **Sensores:** [Listar sensores utilizados, se houver]
+- **Led:** funcionam como a lâmpada do farol. (Nesse caso precisa de dois de cada cor sendo elas vermelhos, verde e amarelo)
+- **Esp32:** Microcontrolador, é nele que opera o código e os comandos para sensores e led.
+- **Sensor Ultrasônico:** Um sensor que detecta próximidade.
+- **Sensor ldr (photoresistor):** Sensor que detecta luminosidade.
+- **Protoboard:** Para conexão dos sensores com o esp e com os leds.
 
 ---
 
