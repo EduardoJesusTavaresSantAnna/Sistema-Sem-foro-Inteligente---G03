@@ -8,6 +8,7 @@ Aqui está a documentação do projeto feito para testar nossos conhecimentos co
 Este repositório contém um sistema de semáforo inteligente que utiliza:
 - **2 Semáforos** controlados de forma coordenada
 - **ESP32** como microcontrolador
+- **Sensores** como o ldr e o ultrasônico
   
 ### 🎯 Lógica de Funcionamento
 
@@ -22,3 +23,5 @@ O sistema opera com dois semáforos que trabalham de forma sincronizada:
    - Aguarda tempo de transição
    - Muda para **VERMELHO**
    - Somente após ficar vermelho, o outro semáforo acende o **VERDE**
+
+### Para entender ainda melhor, contamos com uma documentação organizada em seções no arquivo desse repósitorio chamado "documetacao.md"
