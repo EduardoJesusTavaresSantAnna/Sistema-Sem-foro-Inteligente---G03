@@ -49,9 +49,49 @@ A mudança entre estados segue uma sequência específica para garantir seguran�
 3. Semáforo 2: VERMELHO
 4. **Somente após** o Semáforo 2 chegar ao VERMELHO → Semáforo 1: VERDE
 
+### 3.1.3 Funcionamento do Sensor LDR (Modo Noturno – Pisca-Amarelo)
+
+- O sensor LDR é utilizado para identificar o nível de luminosidade ambiente e, a partir disso, determinar quando o sistema deve entrar no modo noturno.
+
+#### Como o LDR opera no sistema:
+O LDR altera sua resistência conforme a quantidade de luz incidente. O Arduino lê esse valor e o compara com um limiar de luminosidade configurado. Quando o valor lido estiver abaixo do limiar, o sistema interpreta que é noite.
+
+#### Lógica aplicada ao semáforo:
+- Luminosidade acima do limiar → Ambiente claro (modo normal):
+- O sistema opera todos os estados do semáforo normalmente:
+- Verde → Amarelo → Vermelho
+- Os semáforos funcionam de forma coordenada entre si.
+
+#### Luminosidade abaixo do limiar → Ambiente escuro (modo noturno):
+- O sistema desativa o ciclo completo dos semáforos.
+- Ambos os semáforos entram no modo “Pisca-Amarelo”, indicando atenção.
+- Nenhum dos sinais exibe verde ou vermelho durante esse modo.
+
+### 3.1.4 Funcionamento do Sensor Ultrassônico (Detecção de Pedestres)
+
+O sensor ultrassônico é utilizado para detectar a presença de pedestres próximos à faixa de travessia, permitindo que o sistema dê prioridade à passagem quando necessário. 
+
+#### Como o sensor ultrassônico opera:
+O sensor envia um pulso ultrassônico e mede o tempo para o eco retornar. A partir disso, calcula a distância até o objeto (pedestre). Se a distância medida estiver abaixo do limiar configurado, considera-se que há um pedestre aguardando.
+
+#### Lógica aplicada ao semáforo
+##### Pedestre detectado (distância abaixo do limiar):
+- O sistema interrompe o ciclo atual.
+- Ambos os semáforos de veículos passam para vermelho simultaneamente.
+- A via é bloqueada para carros.
+- O pedestre pode atravessar com segurança.
+
+##### Nenhum pedestre detectado:
+
+- O sistema permanece no ciclo normal dos semáforos descrito nas seções 3.1.1 e 3.1.2.
+- A sequência verde → amarelo → vermelho é mantida.
+- Operação contínua (sem uso de delay):
+- O sensor é lido periodicamente utilizando lógica baseada em millis().
+- Isso garante respostas rápidas sem travar outros processos do sistema.
+
 ---
 
-## 4. Upload do Código
+## 4. Código Fonte
 Utilize o código a seguir para que o sistema funcione da maneira esperada. Para isso use uma plataforma como Arduino IDE.
 
 ```c
