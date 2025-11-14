@@ -49,195 +49,323 @@ A mudança entre estados segue uma sequência específica para garantir seguran�
 3. Semáforo 2: VERMELHO
 4. **Somente após** o Semáforo 2 chegar ao VERMELHO → Semáforo 1: VERDE
 
-### 3.2 Temporização
-- **Tempo de VERDE:** [X segundos]
-- **Tempo de AMARELO:** [X segundos]
-- **Tempo de VERMELHO:** [X segundos]
+---
 
-### 3.3 Diagrama de Estados
+## 4. Upload do Código
+Utilize o código a seguir para que o sistema funcione da maneira esperada. Para isso use uma plataforma como Arduino IDE.
+
+```c
+#if __has_include(<Arduino.h>)
+#include <Arduino.h>
+#else
+#include <cstdint>
+using std::uint16_t;
+using std::uint32_t;
+using std::uint8_t;
+#define OUTPUT 1
+#define INPUT 0
+#define HIGH 1
+#define LOW 0
+inline void pinMode(uint8_t, uint8_t) {}
+inline void digitalWrite(uint8_t, bool) {}
+inline uint16_t analogRead(uint8_t) { return 0; }
+inline void delay(unsigned long) {}
+inline void delayMicroseconds(unsigned int) {}
+inline uint32_t millis() {
+  static uint32_t fakeMillis = 0;
+  fakeMillis += 16;
+  return fakeMillis;
+}
+inline uint32_t pulseIn(uint8_t, uint8_t, uint32_t) { return 0; }
+struct DummySerial {
+  void begin(unsigned long) {}
+  bool operator!() const { return false; }
+  void print(const char*) {}
+  void print(float) {}
+  void print(unsigned long) {}
+  void print(int) {}
+  void println(const char*) {}
+  void println(float) {}
+  void println(unsigned long) {}
+  void println(int) {}
+} Serial;
+#endif
+
+// Pin map
+const int SEM1_RED_PIN = 17;
+const int SEM1_YELLOW_PIN = 16;
+const int SEM1_GREEN_PIN = 4;
+const int SEM2_RED_PIN = 26;
+const int SEM2_YELLOW_PIN = 25;
+const int SEM2_GREEN_PIN = 33;
+const int LDR_PIN = 34;
+const int ULTRASONIC_TRIG_PIN = 32;
+const int ULTRASONIC_ECHO_PIN = 35;
+
+// Sensor and timing settings
+const int LDR_SAMPLES = 8;
+const int LDR_DAY_NIGHT_THRESHOLD = 400;
+const int LDR_HYSTERESIS = 200;
+const float SPEED_OF_SOUND_CM_PER_US = 0.0343f;
+const int MAX_DISTANCE_CM = 400;
+const int VEHICLE_DETECTION_CM = 40;
+const unsigned long ULTRASONIC_TIMEOUT_US = 6000;
+const float EMERGENCY_TRIGGER_CM = 6.0f;
+const float EMERGENCY_RELEASE_CM = 8.0f;
+const unsigned long EMERGENCY_MIN_DURATION_MS = 6000;
+const unsigned long GREEN_BASE_DURATION = 6000;
+const unsigned long GREEN_MAX_EXTENSION = 4000;
+const unsigned long YELLOW_DURATION = 2000;
+const unsigned long RED_OVERLAP_DURATION = 1000;
+const unsigned long NIGHT_BLINK_INTERVAL = 600;
+
+// Phase ids
+const int PHASE_SEM1_GREEN = 0;
+const int PHASE_SEM1_YELLOW = 1;
+const int PHASE_ALL_RED_1 = 2;
+const int PHASE_SEM2_GREEN = 3;
+const int PHASE_SEM2_YELLOW = 4;
+const int PHASE_ALL_RED_2 = 5;
+
+// Global state
+int currentPhase = PHASE_SEM1_GREEN;
+unsigned long phaseStartMillis = 0;
+unsigned long nightBlinkMillis = 0;
+bool blinkOn = false;
+bool isNightMode = false;
+bool nightDecisionMemory = false;
+float lastDistanceCm = MAX_DISTANCE_CM;
+bool emergencyStopActive = false;
+unsigned long emergencyReleaseMillis = 0;
+unsigned long lastLogMillis = 0;
+
+void setSemaphore1(bool red, bool yellow, bool green) {
+  digitalWrite(SEM1_RED_PIN, red);
+  digitalWrite(SEM1_YELLOW_PIN, yellow);
+  digitalWrite(SEM1_GREEN_PIN, green);
+}
+
+void setSemaphore2(bool red, bool yellow, bool green) {
+  digitalWrite(SEM2_RED_PIN, red);
+  digitalWrite(SEM2_YELLOW_PIN, yellow);
+  digitalWrite(SEM2_GREEN_PIN, green);
+}
+
+int readLdr() {
+  long total = 0;
+  for (int i = 0; i < LDR_SAMPLES; i++) {
+    total += analogRead(LDR_PIN);
+    delay(2);
+  }
+  return static_cast<int>(total / LDR_SAMPLES);
+}
+
+bool detectNight(int value) {
+  if (!nightDecisionMemory) {
+    if (value < (LDR_DAY_NIGHT_THRESHOLD - LDR_HYSTERESIS)) {
+      nightDecisionMemory = true;
+    }
+  } else {
+    if (value > (LDR_DAY_NIGHT_THRESHOLD + LDR_HYSTERESIS)) {
+      nightDecisionMemory = false;
+    }
+  }
+  return nightDecisionMemory;
+}
+
+float readDistanceCm() {
+  digitalWrite(ULTRASONIC_TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(ULTRASONIC_TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(ULTRASONIC_TRIG_PIN, LOW);
+
+  unsigned long pulseDuration = pulseIn(ULTRASONIC_ECHO_PIN, HIGH, ULTRASONIC_TIMEOUT_US);
+  if (pulseDuration == 0) {
+    return MAX_DISTANCE_CM;
+  }
+
+  float distance = (pulseDuration * SPEED_OF_SOUND_CM_PER_US) / 2.0f;
+  if (distance > MAX_DISTANCE_CM) {
+    distance = MAX_DISTANCE_CM;
+  }
+  return distance;
+}
+
+bool vehicleNear() { return lastDistanceCm <= VEHICLE_DETECTION_CM; }
+
+void moveToPhase(int nextPhase) {
+  currentPhase = nextPhase;
+  phaseStartMillis = millis();
+}
+
+void runDayMode(unsigned long now) {
+  unsigned long elapsed = now - phaseStartMillis;
+
+  if (currentPhase == PHASE_SEM1_GREEN) {
+    bool extendGreen = vehicleNear();
+    unsigned long allowedTime = GREEN_BASE_DURATION + (extendGreen ? GREEN_MAX_EXTENSION : 0);
+    setSemaphore1(false, false, true);
+    setSemaphore2(true, false, false);
+    if (elapsed >= allowedTime) {
+      moveToPhase(PHASE_SEM1_YELLOW);
+    }
+  } else if (currentPhase == PHASE_SEM1_YELLOW) {
+    setSemaphore1(false, true, false);
+    setSemaphore2(true, false, false);
+    if (elapsed >= YELLOW_DURATION) {
+      moveToPhase(PHASE_ALL_RED_1);
+    }
+  } else if (currentPhase == PHASE_ALL_RED_1) {
+    setSemaphore1(true, false, false);
+    setSemaphore2(true, false, false);
+    if (elapsed >= RED_OVERLAP_DURATION) {
+      moveToPhase(PHASE_SEM2_GREEN);
+    }
+  } else if (currentPhase == PHASE_SEM2_GREEN) {
+    bool extendGreen = vehicleNear();
+    unsigned long allowedTime = GREEN_BASE_DURATION + (extendGreen ? GREEN_MAX_EXTENSION : 0);
+    setSemaphore1(true, false, false);
+    setSemaphore2(false, false, true);
+    if (elapsed >= allowedTime) {
+      moveToPhase(PHASE_SEM2_YELLOW);
+    }
+  } else if (currentPhase == PHASE_SEM2_YELLOW) {
+    setSemaphore1(true, false, false);
+    setSemaphore2(false, true, false);
+    if (elapsed >= YELLOW_DURATION) {
+      moveToPhase(PHASE_ALL_RED_2);
+    }
+  } else {
+    setSemaphore1(true, false, false);
+    setSemaphore2(true, false, false);
+    if (elapsed >= RED_OVERLAP_DURATION) {
+      moveToPhase(PHASE_SEM1_GREEN);
+    }
+  }
+}
+
+void runNightMode(unsigned long now) {
+  if (now - nightBlinkMillis >= NIGHT_BLINK_INTERVAL) {
+    nightBlinkMillis = now;
+    blinkOn = !blinkOn;
+    setSemaphore1(false, blinkOn, false);
+    setSemaphore2(false, blinkOn, false);
+  }
+}
+
+void handleEmergency(unsigned long now) {
+  bool wasActive = emergencyStopActive;
+
+  if (lastDistanceCm < EMERGENCY_TRIGGER_CM) {
+    emergencyStopActive = true;
+    emergencyReleaseMillis = now + EMERGENCY_MIN_DURATION_MS;
+  }
+
+  bool canClear =
+      emergencyStopActive && now >= emergencyReleaseMillis && lastDistanceCm >= EMERGENCY_RELEASE_CM;
+
+  if (canClear) {
+    emergencyStopActive = false;
+    Serial.print("Emergency stop cleared (Distance=");
+    Serial.print(lastDistanceCm);
+    Serial.println(" cm)");
+    phaseStartMillis = now;
+    if (isNightMode) {
+      nightBlinkMillis = now;
+      blinkOn = false;
+    }
+  } else if (emergencyStopActive && !wasActive) {
+    Serial.print("Emergency stop activated (Distance=");
+    Serial.print(lastDistanceCm);
+    Serial.println(" cm)");
+  }
+}
+
+void logStatus(unsigned long now, int ldrValue) {
+  if (now - lastLogMillis < 2000) {
+    return;
+  }
+  lastLogMillis = now;
+
+  Serial.print("LDR=");
+  Serial.print(ldrValue);
+  Serial.print(" | Night=");
+  Serial.print(isNightMode ? "yes" : "no");
+  Serial.print(" | Emergency=");
+  Serial.print(emergencyStopActive ? "yes" : "no");
+  Serial.print(" | Distance=");
+  Serial.print(lastDistanceCm);
+  Serial.println(" cm");
+}
+
+void setup() {
+  pinMode(SEM1_RED_PIN, OUTPUT);
+  pinMode(SEM1_YELLOW_PIN, OUTPUT);
+  pinMode(SEM1_GREEN_PIN, OUTPUT);
+  pinMode(SEM2_RED_PIN, OUTPUT);
+  pinMode(SEM2_YELLOW_PIN, OUTPUT);
+  pinMode(SEM2_GREEN_PIN, OUTPUT);
+  pinMode(LDR_PIN, INPUT);
+  pinMode(ULTRASONIC_TRIG_PIN, OUTPUT);
+  pinMode(ULTRASONIC_ECHO_PIN, INPUT);
+
+  setSemaphore1(true, false, false);
+  setSemaphore2(true, false, false);
+
+  phaseStartMillis = millis();
+  nightBlinkMillis = millis();
+
+  Serial.begin(115200);
+  while (!Serial) {
+    delay(10);
+  }
+  Serial.println("Smart semaphore ready.");
+}
+
+void loop() {
+  unsigned long now = millis();
+
+  lastDistanceCm = readDistanceCm();
+  handleEmergency(now);
+
+  int ldrValue = readLdr();
+  bool nightDecision = detectNight(ldrValue);
+  if (nightDecision != isNightMode) {
+    isNightMode = nightDecision;
+    Serial.print("Mode change -> ");
+    Serial.print(isNightMode ? "night" : "day");
+    Serial.print(" (LDR=");
+    Serial.print(ldrValue);
+    Serial.println(")");
+
+    if (isNightMode) {
+      nightBlinkMillis = now;
+      blinkOn = false;
+      setSemaphore1(false, blinkOn, false);
+      setSemaphore2(false, blinkOn, false);
+    } else {
+      moveToPhase(PHASE_SEM1_GREEN);
+    }
+  }
+
+  if (emergencyStopActive) {
+    setSemaphore1(true, false, false);
+    setSemaphore2(true, false, false);
+  } else if (isNightMode) {
+    runNightMode(now);
+  } else {
+    runDayMode(now);
+  }
+
+  logStatus(now, ldrValue);
+}
 ```
-[Inserir diagrama ou fluxograma mostrando as transições entre estados]
-```
 
 ---
 
-## 4. ESPECIFICAÇÕES TÉCNICAS
+## 5. ANEXOS
+Aqui portamos um vídeo demonstrativo do funcionamento desse semáforo.
 
-### 4.1 Hardware
-#### 4.1.1 Microcontrolador
-- **Modelo:** [ex: ESP32 DevKit]
-- **Tensão de Operação:** [ex: 3.3V/5V]
-- **Portas Utilizadas:** [Listar GPIO utilizadas]
-
-#### 4.1.2 LEDs
-- **LED Verde (Semáforo 1):** GPIO [X]
-- **LED Amarelo (Semáforo 1):** GPIO [X]
-- **LED Vermelho (Semáforo 1):** GPIO [X]
-- **LED Verde (Semáforo 2):** GPIO [X]
-- **LED Amarelo (Semáforo 2):** GPIO [X]
-- **LED Vermelho (Semáforo 2):** GPIO [X]
-
-#### 4.1.3 Resistores
-- **Valor dos Resistores:** [ex: 220Ω]
-- **Quantidade:** [X unidades]
-
-#### 4.1.4 Outros Componentes
-- [Listar outros componentes utilizados]
-
-### 4.2 Software
-- **Linguagem de Programação:** [ex: C++ para Arduino/ESP32]
-- **IDE Utilizada:** [ex: Arduino IDE, PlatformIO]
-- **Bibliotecas:** [Listar bibliotecas necessárias]
-- **Versão do Firmware:** [X.X.X]
-
-### 4.3 Conectividade
-- **Protocolo de Comunicação:** [ex: Wi-Fi, MQTT]
-- **Plataforma IoT:** [ex: Ubidots]
-- **Credenciais de Rede:** [Instruções para configuração]
-
----
-
-## 5. INSTALAÇÃO E CONFIGURAÇÃO
-
-### 5.1 Requisitos
-- [Listar requisitos de hardware]
-- [Listar requisitos de software]
-- [Listar dependências]
-
-### 5.2 Montagem do Circuito
-1. [Passo a passo para montagem]
-2. [Incluir esquema elétrico se disponível]
-3. [Precauções de segurança]
-
-### 5.3 Configuração do Software
-```
-[Instruções de configuração passo a passo]
-```
-
-### 5.4 Upload do Código
-```
-[Instruções para compilar e fazer upload do código]
-```
-
----
-
-## 6. OPERAÇÃO DO SISTEMA
-
-### 6.1 Inicialização
-[Descrever o processo de inicialização do sistema]
-
-### 6.2 Modos de Operação
-- **Modo Automático:** [Descrever funcionamento]
-- **Modo Manual:** [Descrever funcionamento, se aplicável]
-- **Modo de Teste:** [Descrever funcionamento, se aplicável]
-
-### 6.3 Monitoramento
-[Descrever como monitorar o sistema via Ubidots ou outra plataforma]
-
----
-
-## 7. CÓDIGO-FONTE
-
-### 7.1 Estrutura do Código
-```
-[Descrever a estrutura/organização do código]
-```
-
-### 7.2 Funções Principais
-- **`setup()`:** [Descrição]
-- **`loop()`:** [Descrição]
-- **`alternarSemaforo()`:** [Descrição]
-- **`transicaoSemaforo()`:** [Descrição]
-- [Listar outras funções importantes]
-
-### 7.3 Variáveis Globais
-- [Listar e descrever variáveis importantes]
-
----
-
-## 8. TESTES E VALIDAÇÃO
-
-### 8.1 Testes Realizados
-- [ ] Teste de inicialização
-- [ ] Teste de transição Semáforo 1 → Semáforo 2
-- [ ] Teste de transição Semáforo 2 → Semáforo 1
-- [ ] Teste de temporização
-- [ ] Teste de conectividade IoT
-- [ ] Teste de longa duração
-
-### 8.2 Resultados
-[Descrever resultados dos testes]
-
-### 8.3 Problemas Identificados
-- [Listar problemas encontrados]
-- [Soluções implementadas]
-
----
-
-## 9. MANUTENÇÃO
-
-### 9.1 Manutenção Preventiva
-- [Procedimentos de manutenção regular]
-
-### 9.2 Troubleshooting
-| Problema | Causa Possível | Solução |
-|----------|----------------|---------|
-| [Problema 1] | [Causa] | [Solução] |
-| [Problema 2] | [Causa] | [Solução] |
-| [Problema 3] | [Causa] | [Solução] |
-
----
-
-## 10. MELHORIAS FUTURAS
-
-### 10.1 Funcionalidades Planejadas
-- [Funcionalidade 1]
-- [Funcionalidade 2]
-- [Funcionalidade 3]
-
-### 10.2 Otimizações
-- [Otimização 1]
-- [Otimização 2]
-
----
-
-## 11. REFERÊNCIAS
-
-### 11.1 Documentação Técnica
-- [Datasheet do ESP32]
-- [Documentação do Ubidots]
-- [Outras referências]
-
-### 11.2 Bibliografia
-- [Artigos e livros consultados]
-
-### 11.3 Links Úteis
-- [Links para recursos online]
-
----
-
-## 12. ANEXOS
-
-### 12.1 Esquema Elétrico
-[Inserir imagem do esquema elétrico]
-
-### 12.2 Fotos do Projeto
-[Inserir fotos da montagem física]
-
-### 12.3 Código Completo
-[Link para arquivo do código ou inserir código aqui]
-
-### 12.4 Vídeos Demonstrativos
-[Links para vídeos do sistema em funcionamento]
-
----
-
-## 13. CONTATO E SUPORTE
-
-- **Equipe:** [Email de contato]
-- **Repositório:** [Link do GitHub]
-- **Documentação Online:** [Link se disponível]
-
----
-
-**Nota:** Este documento deve ser atualizado regularmente conforme o projeto evolui. Mantenha todas as seções preenchidas e atualizadas para facilitar a compreensão e manutenção do sistema.
+### 5.1 Vídeos Demonstrativos
+[Links para vídeos do sistema em funcionamento](https://drive.google.com/file/d/1Oe8Aym1XwTAC3p8azcQTVJjyyRspjOiv/view?usp=sharing)]
